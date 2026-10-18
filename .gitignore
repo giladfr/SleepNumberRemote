@@ -1,0 +1,5 @@
+.pio/
+.vscode/
+include/config_local.h
+result.json
+.DS_Store
