@@ -4,13 +4,13 @@
 #include <Arduino.h>
 
 #include "config.h"
+#include "homekit.h"
 #include "settings.h"
 #include "ui.h"
 #include "ui_internal.h"
 
 namespace ui {
 
-namespace {
 
 // ---- Shared bits -------------------------------------------------------------
 
@@ -39,7 +39,7 @@ void makeScrollList(lv_obj_t* o) {
   lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
 }
 
-lv_obj_t* listRow(lv_obj_t* parent, const char* icon, const char* label, lv_event_cb_t cb, int h = 48) {
+lv_obj_t* listRow(lv_obj_t* parent, const char* icon, const char* label, lv_event_cb_t cb, int h) {
   lv_obj_t* r = panel(parent, kSurface, 14);
   lv_obj_set_size(r, kW - 12, h);
   if (cb) {
@@ -65,6 +65,75 @@ void styleSwitch(lv_obj_t* sw) {
   lv_obj_set_ext_click_area(sw, 10);
 }
 
+void closeOverlay(lv_obj_t*& o) {
+  if (!o) return;
+  lv_obj_del_async(o);  // async: we are usually inside an event of one of its children
+  o = nullptr;
+}
+
+lv_obj_t* confirmBox(const char* title, const char* body, const char** btns, lv_event_cb_t cb) {
+  lv_obj_t* m = lv_msgbox_create(nullptr, title, body, btns, false);
+  lv_obj_set_width(m, kW - 20);
+  lv_obj_set_style_bg_color(m, kSurface, 0);
+  lv_obj_set_style_radius(m, 18, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_set_style_text_color(m, kText, 0);
+  lv_obj_t* t = lv_msgbox_get_title(m);
+  lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+  lv_obj_t* btnm = lv_msgbox_get_btns(m);
+  lv_obj_set_size(btnm, LV_PCT(100), 44);
+  lv_obj_set_style_bg_color(btnm, kSurface2, LV_PART_ITEMS);
+  lv_obj_set_style_text_color(btnm, kText, LV_PART_ITEMS);
+  lv_obj_set_style_radius(btnm, 12, LV_PART_ITEMS);
+  lv_obj_center(m);
+  lv_obj_add_event_cb(m, cb, LV_EVENT_VALUE_CHANGED, nullptr);
+  // Dim the background behind the dialog.
+  lv_obj_set_style_bg_opa(lv_obj_get_parent(m), LV_OPA_60, 0);
+  lv_obj_set_style_bg_color(lv_obj_get_parent(m), lv_color_black(), 0);
+  return m;
+}
+
+void styleKeyboard(lv_obj_t* kb) {
+  lv_obj_set_style_bg_color(kb, kBg, 0);
+  lv_obj_set_style_pad_all(kb, 3, 0);
+  lv_obj_set_style_pad_gap(kb, 3, 0);
+  lv_obj_set_style_bg_color(kb, kSurface2, LV_PART_ITEMS);
+  lv_obj_set_style_bg_color(kb, kSurface, LV_PART_ITEMS | LV_STATE_CHECKED);
+  lv_obj_set_style_bg_color(kb, kAccent, LV_PART_ITEMS | LV_STATE_PRESSED);
+  lv_obj_set_style_text_color(kb, kText, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(kb, &lv_font_montserrat_16, LV_PART_ITEMS);
+  lv_obj_set_style_radius(kb, 8, LV_PART_ITEMS);
+  lv_obj_set_style_border_width(kb, 0, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(kb, 0, LV_PART_ITEMS);
+}
+
+lv_obj_t* textField(lv_obj_t* parent) {
+  lv_obj_t* ta = lv_textarea_create(parent);
+  lv_textarea_set_one_line(ta, true);
+  lv_obj_set_style_text_font(ta, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(ta, kText, 0);
+  lv_obj_set_style_bg_color(ta, kSurface, 0);
+  lv_obj_set_style_radius(ta, 12, 0);
+  lv_obj_set_style_border_width(ta, 2, 0);
+  lv_obj_set_style_border_color(ta, kSurface, 0);
+  lv_obj_set_style_border_color(ta, kAccent, LV_STATE_FOCUSED);
+  lv_obj_set_style_pad_ver(ta, 9, 0);
+  lv_obj_set_style_bg_color(ta, kAccent, LV_PART_CURSOR | LV_STATE_FOCUSED);
+  return ta;
+}
+
+lv_obj_t* spinner(lv_obj_t* parent, int size, int width) {
+  lv_obj_t* sp = lv_spinner_create(parent, 1000, 60);
+  lv_obj_set_size(sp, size, size);
+  lv_obj_set_style_arc_color(sp, kSurface2, LV_PART_MAIN);
+  lv_obj_set_style_arc_color(sp, kAccent, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_width(sp, width, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(sp, width, LV_PART_INDICATOR);
+  return sp;
+}
+
+namespace {
+
 // ---- Settings page -------------------------------------------------------------
 
 const uint16_t kOffOptions[] = {30, 60, 300, 0};
@@ -73,6 +142,7 @@ const char* const kOffLabels[] = {"30s", "1m", "5m", "Never"};
 lv_obj_t* bedTitle;
 lv_obj_t* bedSub;
 lv_obj_t* namesSub;
+lv_obj_t* homekitSub;
 lv_obj_t* swapSwitch;
 lv_obj_t* flipSwitch;
 lv_obj_t* brightSlider;
@@ -81,6 +151,7 @@ lv_obj_t* offBtn[4];
 void onBedRow(lv_event_t*) { openInfo(); }
 void onPairRow(lv_event_t*) { openPairing(true); }
 void onNamesRow(lv_event_t*) { openNames(); }
+void onHomeKitRow(lv_event_t*) { openHomeKit(); }
 
 void onSwap(lv_event_t*) {
   Settings::get().swapSides = lv_obj_has_state(swapSwitch, LV_STATE_CHECKED);
@@ -115,25 +186,7 @@ void onForgetConfirm(lv_event_t* e) {
 
 void onForget(lv_event_t*) {
   static const char* btns[] = {"Cancel", "Forget", ""};
-  lv_obj_t* m = lv_msgbox_create(nullptr, "Forget pairing?",
-                                 "To reconnect you'll need to hold the bed's pairing button.", btns, false);
-  lv_obj_set_width(m, kW - 20);
-  lv_obj_set_style_bg_color(m, kSurface, 0);
-  lv_obj_set_style_radius(m, 18, 0);
-  lv_obj_set_style_border_width(m, 0, 0);
-  lv_obj_set_style_text_color(m, kText, 0);
-  lv_obj_t* title = lv_msgbox_get_title(m);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_t* btnm = lv_msgbox_get_btns(m);
-  lv_obj_set_size(btnm, LV_PCT(100), 44);
-  lv_obj_set_style_bg_color(btnm, kSurface2, LV_PART_ITEMS);
-  lv_obj_set_style_text_color(btnm, kText, LV_PART_ITEMS);
-  lv_obj_set_style_radius(btnm, 12, LV_PART_ITEMS);
-  lv_obj_center(m);
-  lv_obj_add_event_cb(m, onForgetConfirm, LV_EVENT_VALUE_CHANGED, nullptr);
-  // Dim the background behind the dialog.
-  lv_obj_set_style_bg_opa(lv_obj_get_parent(m), LV_OPA_60, 0);
-  lv_obj_set_style_bg_color(lv_obj_get_parent(m), lv_color_black(), 0);
+  confirmBox("Forget pairing?", "To reconnect you'll need to hold the bed's pairing button.", btns, onForgetConfirm);
 }
 
 // ---- Pairing overlay -------------------------------------------------------------
@@ -142,7 +195,7 @@ enum class PairStep { Scan, Wait, Done };
 PairStep pairStep = PairStep::Scan;
 bool pairSawNotReady = false;
 
-lv_obj_t* pairOverlay;
+lv_obj_t* pairOverlay = nullptr;
 lv_obj_t* scanView;
 lv_obj_t* scanList;
 lv_obj_t* scanStatus;
@@ -161,7 +214,7 @@ void showPairStep(PairStep s) {
   setHidden(doneView, s != PairStep::Done);
 }
 
-void onPairBack(lv_event_t*) { setHidden(pairOverlay, true); }
+void onPairBack(lv_event_t*) { closeOverlay(pairOverlay); }
 void onScanAgain(lv_event_t*) { BedLink::startScan(); }
 
 void onFoundBed(lv_event_t* e) {
@@ -205,13 +258,8 @@ void buildPairing(lv_obj_t* scr) {
   lv_obj_set_size(scanList, kW, kH - 50 - 40 - 56);
   lv_obj_set_pos(scanList, 0, 40);
   makeScrollList(scanList);
-  scanSpinner = lv_spinner_create(scanView, 1000, 60);
-  lv_obj_set_size(scanSpinner, 48, 48);
+  scanSpinner = spinner(scanView, 48, 5);
   lv_obj_align(scanSpinner, LV_ALIGN_TOP_MID, 0, 70);
-  lv_obj_set_style_arc_color(scanSpinner, kSurface2, LV_PART_MAIN);
-  lv_obj_set_style_arc_color(scanSpinner, kAccent, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_width(scanSpinner, 5, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(scanSpinner, 5, LV_PART_INDICATOR);
   scanAgain = button(scanView, LV_SYMBOL_REFRESH "  Scan again", &lv_font_montserrat_16, kSurface2);
   lv_obj_set_size(scanAgain, kW - 12, 44);
   lv_obj_set_pos(scanAgain, 6, kH - 50 - 52);
@@ -220,13 +268,8 @@ void buildPairing(lv_obj_t* scr) {
   // Step 2: wait for the bed's pairing mode
   waitView = box(content);
   lv_obj_set_size(waitView, kW, kH - 50);
-  lv_obj_t* spin = lv_spinner_create(waitView, 1200, 70);
-  lv_obj_set_size(spin, 64, 64);
+  lv_obj_t* spin = spinner(waitView, 64, 6);
   lv_obj_align(spin, LV_ALIGN_TOP_MID, 0, 16);
-  lv_obj_set_style_arc_color(spin, kSurface2, LV_PART_MAIN);
-  lv_obj_set_style_arc_color(spin, kAccent, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_width(spin, 6, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(spin, 6, LV_PART_INDICATOR);
   lv_obj_t* bt = text(waitView, LV_SYMBOL_BLUETOOTH, &lv_font_montserrat_20, kAccent);
   lv_obj_align_to(bt, spin, LV_ALIGN_CENTER, 0, 0);
   lv_obj_t* how = text(waitView, "Hold the pairing button on the bed until its light blinks blue.",
@@ -261,7 +304,7 @@ void buildPairing(lv_obj_t* scr) {
 }
 
 void refreshPairing() {
-  if (lv_obj_has_flag(pairOverlay, LV_OBJ_FLAG_HIDDEN)) return;
+  if (!pairOverlay) return;
   if (pairStep == PairStep::Scan) {
     uint32_t v = bed.foundCount * 2 + bed.scanning;
     if (v != scanListVersion) {
@@ -292,7 +335,7 @@ void refreshPairing() {
 
 // ---- Bed info overlay -------------------------------------------------------------
 
-lv_obj_t* infoOverlay;
+lv_obj_t* infoOverlay = nullptr;
 lv_obj_t* infoList;
 
 enum InfoKey {
@@ -306,7 +349,7 @@ lv_obj_t* sideVal[skCount][2];
 lv_obj_t* logLabel;
 lv_obj_t* infoSideHdr[2];
 
-void onInfoBack(lv_event_t*) { setHidden(infoOverlay, true); }
+void onInfoBack(lv_event_t*) { closeOverlay(infoOverlay); }
 
 lv_obj_t* section(const char* title) {
   lv_obj_t* t = text(infoList, title, &lv_font_montserrat_12, kAccent);
@@ -391,7 +434,7 @@ const char* linkName(LinkState s) {
 void setVal(int k, const char* v) { setText(infoVal[k], v && v[0] ? v : "-"); }
 
 void refreshInfo() {
-  if (lv_obj_has_flag(infoOverlay, LV_OBJ_FLAG_HIDDEN)) return;
+  if (!infoOverlay) return;
   char b[96];
   setVal(kiState, linkName(bed.link));
   setVal(kiName, bed.bedName);
@@ -467,7 +510,7 @@ void refreshInfo() {
 
 constexpr int kNameMax = sizeof(RemoteSettings::sideName[0]) - 1;
 
-lv_obj_t* namesOverlay;
+lv_obj_t* namesOverlay = nullptr;
 lv_obj_t* nameField[2];
 lv_obj_t* keyboard;
 
@@ -481,11 +524,13 @@ void saveNames() {
     strlcpy(Settings::get().sideName[s], buf, sizeof(buf));  // empty = default name
   }
   Settings::save();
+  HomeKit::noteConfigChanged();
 }
 
 void onNamesDone(lv_event_t*) {
+  if (!namesOverlay) return;
   saveNames();
-  setHidden(namesOverlay, true);
+  closeOverlay(namesOverlay);
 }
 
 void onNameFocused(lv_event_t* e) { lv_keyboard_set_textarea(keyboard, lv_event_get_target(e)); }
@@ -497,20 +542,10 @@ void buildNames(lv_obj_t* scr) {
   for (int s = 0; s < 2; s++) {
     lv_obj_t* h = text(content, hints[s], &lv_font_montserrat_12, kMuted);
     lv_obj_set_pos(h, 12, s * 56);
-    lv_obj_t* ta = lv_textarea_create(content);
-    lv_textarea_set_one_line(ta, true);
+    lv_obj_t* ta = textField(content);
     lv_textarea_set_max_length(ta, kNameMax);
     lv_obj_set_size(ta, kW - 12, 40);
     lv_obj_set_pos(ta, 6, s * 56 + 15);
-    lv_obj_set_style_text_font(ta, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(ta, kText, 0);
-    lv_obj_set_style_bg_color(ta, kSurface, 0);
-    lv_obj_set_style_radius(ta, 12, 0);
-    lv_obj_set_style_border_width(ta, 2, 0);
-    lv_obj_set_style_border_color(ta, kSurface, 0);
-    lv_obj_set_style_border_color(ta, kAccent, LV_STATE_FOCUSED);
-    lv_obj_set_style_pad_ver(ta, 9, 0);
-    lv_obj_set_style_bg_color(ta, kAccent, LV_PART_CURSOR | LV_STATE_FOCUSED);
     lv_obj_add_event_cb(ta, onNameFocused, LV_EVENT_FOCUSED, nullptr);
     nameField[s] = ta;
   }
@@ -534,17 +569,7 @@ void buildNames(lv_obj_t* scr) {
   lv_keyboard_set_map(keyboard, LV_KEYBOARD_MODE_TEXT_UPPER, upper, ctrl);
   lv_obj_set_size(keyboard, kW, kH - 50 - 120);
   lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(keyboard, kBg, 0);
-  lv_obj_set_style_pad_all(keyboard, 3, 0);
-  lv_obj_set_style_pad_gap(keyboard, 3, 0);
-  lv_obj_set_style_bg_color(keyboard, kSurface2, LV_PART_ITEMS);
-  lv_obj_set_style_bg_color(keyboard, kSurface, LV_PART_ITEMS | LV_STATE_CHECKED);
-  lv_obj_set_style_bg_color(keyboard, kAccent, LV_PART_ITEMS | LV_STATE_PRESSED);
-  lv_obj_set_style_text_color(keyboard, kText, LV_PART_ITEMS);
-  lv_obj_set_style_text_font(keyboard, &lv_font_montserrat_16, LV_PART_ITEMS);
-  lv_obj_set_style_radius(keyboard, 8, LV_PART_ITEMS);
-  lv_obj_set_style_border_width(keyboard, 0, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(keyboard, 0, LV_PART_ITEMS);
+  styleKeyboard(keyboard);
   // The keyboard's check key saves; its close key also just closes (and saves).
   lv_obj_add_event_cb(keyboard, onNamesDone, LV_EVENT_READY, nullptr);
   lv_obj_add_event_cb(keyboard, onNamesDone, LV_EVENT_CANCEL, nullptr);
@@ -569,6 +594,11 @@ void buildSettings(lv_obj_t* page) {
   lv_obj_align(namesSub, LV_ALIGN_BOTTOM_LEFT, 44, -7);
 
   listRow(page, LV_SYMBOL_PLUS, "Pair a bed", onPairRow);
+
+  r = listRow(page, LV_SYMBOL_WIFI, "HomeKit", onHomeKitRow, 52);
+  lv_obj_align(lv_obj_get_child(r, 2), LV_ALIGN_TOP_LEFT, 44, 7);
+  homekitSub = text(r, "", &lv_font_montserrat_12, kMuted);
+  lv_obj_align(homekitSub, LV_ALIGN_BOTTOM_LEFT, 44, -7);
 
   r = listRow(page, LV_SYMBOL_SHUFFLE, "Swap sides", nullptr);
   swapSwitch = lv_switch_create(r);
@@ -629,6 +659,7 @@ void refreshSettings() {
   char names[32];
   snprintf(names, sizeof(names), "%s  |  %s", sideName(SIDE_LEFT), sideName(SIDE_RIGHT));
   setText(namesSub, names);
+  setText(homekitSub, homeKitSummary());
 
   const RemoteSettings& cfg = Settings::get();
   setChecked(swapSwitch, cfg.swapSides);
@@ -639,18 +670,18 @@ void refreshSettings() {
 
 // ---- Overlays ----------------------------------------------------------------------
 
-void buildOverlays(lv_obj_t* scr) {
-  buildPairing(scr);
-  buildInfo(scr);
-  buildNames(scr);
-}
+// Overlays are built when opened and deleted when closed: together they would
+// take ~50 KB of RAM that Wi-Fi and HomeKit need.
+void buildOverlays(lv_obj_t*) {}
 
 void refreshOverlays() {
   refreshPairing();
   refreshInfo();
+  refreshHomeKit();
 }
 
 void openPairing(bool scanFirst) {
+  if (!pairOverlay) buildPairing(lv_scr_act());
   setHidden(pairOverlay, false);
   lv_obj_move_foreground(pairOverlay);
   scanListVersion = UINT32_MAX;
@@ -665,6 +696,7 @@ void openPairing(bool scanFirst) {
 }
 
 void openNames() {
+  if (!namesOverlay) buildNames(lv_scr_act());
   for (int s = 0; s < 2; s++) lv_textarea_set_text(nameField[s], sideName((BedSide)s));
   setHidden(namesOverlay, false);
   lv_obj_move_foreground(namesOverlay);
@@ -674,6 +706,7 @@ void openNames() {
 }
 
 void openInfo() {
+  if (!infoOverlay) buildInfo(lv_scr_act());
   setHidden(infoOverlay, false);
   lv_obj_move_foreground(infoOverlay);
   lv_obj_scroll_to_y(infoList, 0, LV_ANIM_OFF);

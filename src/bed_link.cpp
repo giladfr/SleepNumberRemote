@@ -20,12 +20,14 @@ constexpr uint32_t kPollSlowMs = 5000;
 constexpr uint32_t kFastAfterCmdMs = 15000;
 constexpr uint32_t kMotionGraceMs = 3000;
 constexpr uint32_t kMaxFrame = 1024;  // real responses are < 100 bytes
+constexpr uint32_t kRemoteHoldMs = 60000;  // link kept after a Home app command while the screen is off
 
 SemaphoreHandle_t stateMutex;
 SemaphoreHandle_t hintSem;
 QueueHandle_t cmdQueue;
 BedState state;
 volatile bool active = true;
+volatile uint32_t holdUntil = 0;  // a command while inactive (HomeKit) wakes the link until then
 
 // Requests from the UI, handled by the link task between operations.
 volatile bool reqScan = false, reqForget = false, reqReconnect = false, reqPair = false;
@@ -231,7 +233,13 @@ void nameFromAddr(const char* addr, char* out, size_t n) {
 void disconnectBed() {
   if (client && client->isConnected()) client->disconnect();
   ready = false;
-  if (BedLink::snapshot().connectedAt) mutate([](BedState& s) { s.connectedAt = 0; });
+  // Presets are only known while connected: the bed can be moved by its own
+  // remote or app meanwhile, and HomeKit decides what to send from these.
+  BedState st = BedLink::snapshot();
+  if (st.connectedAt || st.preset[0][0] || st.preset[1][0]) mutate([](BedState& s) {
+      s.connectedAt = 0;
+      s.preset[0][0] = s.preset[1][0] = 0;
+    });
 }
 
 void loadTarget() {
@@ -517,7 +525,7 @@ void linkTask(void*) {
       loadTarget();
     }
 
-    if (!active) {
+    if (!active && (int32_t)(holdUntil - millis()) <= 0) {
       disconnectBed();
       xQueueReset(cmdQueue);  // never replay stale taps later
       setLink(LinkState::Asleep, "Asleep");
@@ -564,7 +572,14 @@ void begin() {
 
 void setActive(bool a) { active = a; }
 
-bool send(const BedCmd& cmd) { return xQueueSend(cmdQueue, &cmd, 0) == pdTRUE; }
+bool send(const BedCmd& cmd) {
+  if (!active) holdUntil = millis() + kRemoteHoldMs;
+  return xQueueSend(cmdQueue, &cmd, 0) == pdTRUE;
+}
+
+void wake() {
+  if (!active) holdUntil = millis() + kRemoteHoldMs;
+}
 
 BedState snapshot() {
   xSemaphoreTake(stateMutex, portMAX_DELAY);

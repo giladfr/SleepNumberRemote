@@ -178,6 +178,7 @@ void onAdjustStop(lv_event_t*) { stopAll(); }
 // ---- Positions page ------------------------------------------------------------
 
 void buildPresets(lv_obj_t* page) {
+  tileRows = 0;  // force the layout pass on the first refresh
   lv_obj_set_style_pad_all(page, 6, 0);
   lv_obj_set_style_pad_gap(page, 8, 0);
   lv_obj_set_flex_flow(page, LV_FLEX_FLOW_ROW_WRAP);

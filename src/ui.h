@@ -4,6 +4,7 @@
 
 namespace Ui {
 void build();  // create all screens; call once after LVGL + display init
+void openHomeKit();
 }
 
 // Implemented by the platform (device or simulator).

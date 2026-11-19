@@ -47,6 +47,18 @@ void setLineColor(lv_obj_t* o, lv_color_t c);
 void setWidth(lv_obj_t* o, lv_coord_t w);
 void setX(lv_obj_t* o, lv_coord_t x);
 
+// Full-screen page with a back button and title; *content receives the area below.
+lv_obj_t* overlay(lv_obj_t* scr, const char* title, lv_event_cb_t onBack, lv_obj_t** content);
+void closeOverlay(lv_obj_t*& o);  // delete it and null the pointer
+void makeScrollList(lv_obj_t* o);
+lv_obj_t* listRow(lv_obj_t* parent, const char* icon, const char* label, lv_event_cb_t cb, int h = 48);
+void styleSwitch(lv_obj_t* sw);
+void styleKeyboard(lv_obj_t* kb);
+lv_obj_t* textField(lv_obj_t* parent);
+lv_obj_t* spinner(lv_obj_t* parent, int size, int width);
+// Dialog; cb gets LV_EVENT_VALUE_CHANGED and must close it with lv_msgbox_close_async.
+lv_obj_t* confirmBox(const char* title, const char* body, const char** btns, lv_event_cb_t cb);
+
 void sendCmd(CmdType type, BedSide side, int value = 0, Actuator act = ACT_HEAD, const char* preset = nullptr);
 void noteMotionCommand();  // shows STOP right away, before the bed reports motion
 void stopAll();
@@ -71,5 +83,11 @@ void refreshOverlays();
 void openPairing(bool scanFirst);
 void openInfo();
 void openNames();
+
+// HomeKit and Wi-Fi setup (ui_homekit.cpp)
+void buildHomeKit(lv_obj_t* scr);
+void refreshHomeKit();
+void openHomeKit();
+const char* homeKitSummary();  // one line for the Settings row
 
 }  // namespace ui

@@ -94,8 +94,12 @@ namespace BedLink {
 void begin();
 // While inactive the link disconnects so phones can use the SleepIQ app.
 void setActive(bool active);
+// Queue a command. While inactive this reconnects for a minute (HomeKit commands
+// arrive with the screen off).
 bool send(const BedCmd& cmd);
 BedState snapshot();
+// While inactive, connect for a minute without sending anything (fresh readings).
+void wake();
 
 void startScan();                     // fills BedState.found
 void pairWith(const FoundBed& bed);   // select + fresh pairing (bed must be in pairing mode)

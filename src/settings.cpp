@@ -27,6 +27,14 @@ void load() {
   settings.bedAddrType = prefs.getUChar("addrt", 0);
   loadString("name0", LEFT_NAME, settings.sideName[0], sizeof(settings.sideName[0]));
   loadString("name1", RIGHT_NAME, settings.sideName[1], sizeof(settings.sideName[1]));
+  settings.homekit = prefs.getBool("hk", false);
+  loadString("wssid", "", settings.wifiSsid, sizeof(settings.wifiSsid));
+  loadString("wpass", "", settings.wifiPass, sizeof(settings.wifiPass));
+  loadString("hkcode", "", settings.hkCode, sizeof(settings.hkCode));
+  loadString("hkid", "", settings.hkId, sizeof(settings.hkId));
+  settings.hkCodeApplied = prefs.getBool("hkset", false);
+  settings.bedFeatures = prefs.getUChar("feat", 0);
+  settings.api = prefs.getBool("api", true);
 }
 
 RemoteSettings& get() { return settings; }
@@ -40,6 +48,14 @@ void save() {
   prefs.putUChar("addrt", settings.bedAddrType);
   prefs.putString("name0", settings.sideName[0]);
   prefs.putString("name1", settings.sideName[1]);
+  prefs.putBool("hk", settings.homekit);
+  prefs.putString("wssid", settings.wifiSsid);
+  prefs.putString("wpass", settings.wifiPass);
+  prefs.putString("hkcode", settings.hkCode);
+  prefs.putString("hkid", settings.hkId);
+  prefs.putBool("hkset", settings.hkCodeApplied);
+  prefs.putUChar("feat", settings.bedFeatures);
+  prefs.putBool("api", settings.api);
 }
 
 }  // namespace Settings

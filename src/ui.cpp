@@ -326,7 +326,20 @@ void stopAll() {
   motionTapAt = 0;
 }
 
+// Only the visible page exists: the others are deleted and rebuilt on the next
+// visit, which leaves RAM for Wi-Fi and HomeKit.
 void goToPage(int page) {
+  static int built = -1;
+  if (page != built) {
+    if (built >= 0) lv_obj_clean(pages[built]);
+    switch (page) {
+      case kPagePresets: buildPresets(pages[page]); break;
+      case kPageFirmness: buildFirmness(pages[page]); break;
+      case kPageAdjust: buildAdjust(pages[page]); break;
+      case kPageSettings: buildSettings(pages[page]); break;
+    }
+    built = page;
+  }
   currentPage = page;
   for (int i = 0; i < kPageCount; i++) setHidden(pages[i], i != page);
   refreshAll(true);
@@ -349,10 +362,6 @@ void build() {
     lv_obj_set_size(pages[i], kW, kBodyH);
     lv_obj_set_pos(pages[i], 0, kHeaderH);
   }
-  buildPresets(pages[kPagePresets]);
-  buildFirmness(pages[kPageFirmness]);
-  buildAdjust(pages[kPageAdjust]);
-  buildSettings(pages[kPageSettings]);
   buildNav(scr);
   buildOverlays(scr);
 

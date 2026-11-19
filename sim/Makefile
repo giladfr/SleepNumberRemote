@@ -10,9 +10,9 @@ FLAGS  := -O0 -g -fno-omit-frame-pointer -I stubs -I $(ROOT)/include -I $(ROOT)/
 LV_SRC := $(shell find $(LVGL)/src -name '*.c')
 LV_OBJ := $(patsubst $(LVGL)/%.c,$(BUILD)/lvgl/%.o,$(LV_SRC))
 APP_SRC := $(ROOT)/src/ui.cpp $(ROOT)/src/ui_control.cpp $(ROOT)/src/ui_system.cpp \
-           sim_main.cpp sim_bed.cpp sim_settings.cpp
+           $(ROOT)/src/ui_homekit.cpp sim_main.cpp sim_bed.cpp sim_settings.cpp sim_homekit.cpp
 
-sim: $(LV_OBJ) $(APP_SRC) $(wildcard $(ROOT)/src/*.h) $(ROOT)/include/config.h
+sim: $(LV_OBJ) $(APP_SRC) $(wildcard $(ROOT)/src/*.h) $(wildcard *.h) $(ROOT)/include/config.h
 	@echo "  link sim"
 	@clang++ -std=c++17 $(FLAGS) $(APP_SRC) $(LV_OBJ) -o $@
 

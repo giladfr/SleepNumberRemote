@@ -9,6 +9,7 @@
 #include <string>
 
 #include "sim_bed.h"
+#include "sim_homekit.h"
 #include "ui.h"
 
 namespace {
@@ -138,6 +139,26 @@ void tapKey(const char* txt) {
     btn++;
   }
   fprintf(stderr, "  !! no key \"%s\"\n", txt);
+}
+
+// Toggle the switch in the list row carrying this label.
+void tapSwitch(const char* rowLabel) {
+  int n = 0;
+  lv_obj_t* label = nullptr;
+  for (int i = (int)lv_obj_get_child_cnt(lv_scr_act()) - 1; i >= 0 && !label; i--) {
+    lv_obj_t* c = lv_obj_get_child(lv_scr_act(), i);
+    if (shown(c)) label = findLabel(c, rowLabel, false, n);
+  }
+  lv_obj_t* sw = label ? findClass(lv_obj_get_parent(label), &lv_switch_class) : nullptr;
+  if (!sw) {
+    fprintf(stderr, "  !! no switch in row \"%s\"\n", rowLabel);
+    return;
+  }
+  lv_obj_scroll_to_view_recursive(sw, LV_ANIM_OFF);
+  run(60);
+  lv_area_t a;
+  lv_obj_get_coords(sw, &a);
+  tapAt((a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2);
 }
 
 // 24-bit BMP at kScale, converted to PNG with macOS `sips`.
@@ -275,6 +296,48 @@ int main() {
   strlcpy(SimBed::state().status, "Pairing needed", sizeof(SimBed::state().status));
   SimBed::state().version++;
   shot("24_needs_pairing", "Home when the bed needs pairing");
+  SimBed::reset();
+  run(300);
+
+  // HomeKit setup: enable, pick Wi-Fi, type the password, scan the code.
+  tap("Settings");
+  tap("HomeKit");
+  shot("25_homekit_off", "HomeKit: off");
+  tapSwitch("Apple Home");
+  run(300);
+  shot("26_wifi_scanning", "Enabling asks for Wi-Fi: scanning");
+  run(1600);
+  shot("27_wifi_list", "Wi-Fi networks");
+  tap("HomeNet");
+  for (const char* k : {"s", "e", "c", "r", "e", "t"}) tapKey(k);
+  shot("28_password", "Wi-Fi password (hidden)");
+  tap(LV_SYMBOL_EYE_OPEN);
+  tapKey("1#");
+  tapKey("4");
+  tapKey("2");
+  shot("29_password_symbols", "Password shown, symbol keys");
+  tapKey(LV_SYMBOL_OK);
+  run(300);
+  shot("30_homekit_connecting", "HomeKit: joining Wi-Fi");
+  run(2500);
+  shot("31_homekit_code", "HomeKit: setup code to scan");
+  SimHomeKit::pairPhone();
+  run(600);
+  shot("32_homekit_paired", "HomeKit: added to Apple Home");
+  tapSwitch("Local API");  // off and on again: scrolls the row into view
+  run(200);
+  tapSwitch("Local API");
+  run(200);
+  shot("32a_homekit_api", "HomeKit: Wi-Fi, local API, reset");
+  tap("Reset HomeKit");
+  shot("33_homekit_reset", "Reset HomeKit confirm");
+  tapKey("Cancel");
+  tap(LV_SYMBOL_LEFT);
+  shot("34_settings_homekit", "Settings with HomeKit on");
+  tap("HomeKit");
+  tapSwitch("Apple Home");
+  run(300);
+  shot("35_restarting", "Turning HomeKit off restarts the remote");
 
   return 0;
 }

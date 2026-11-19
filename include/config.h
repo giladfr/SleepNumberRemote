@@ -9,7 +9,7 @@
 #include "config_local.h"
 #endif
 
-#define FW_VERSION "1.2.0"
+#define FW_VERSION "1.4.0"
 
 // ---- Defaults for on-device settings ------------------------------------------
 #ifndef LEFT_NAME

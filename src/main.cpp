@@ -10,6 +10,7 @@
 
 #include "bed_link.h"
 #include "config.h"
+#include "homekit.h"
 #include "settings.h"
 #include "ui.h"
 
@@ -25,11 +26,26 @@ SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(33, 36);
 
 lv_disp_draw_buf_t drawBuf;
+// One buffer: flush() waits for the SPI transfer, so a second one wouldn't overlap
+// anything, and its 11.5 KB is better spent on Wi-Fi/HomeKit.
 lv_color_t buf1[kWidth * 24];
-lv_color_t buf2[kWidth * 24];
 
 enum class Power { On, Dim, Off } power = Power::On;
 bool swallowTouch = false;
+uint32_t offSince = 0;
+uint32_t restartAt = 0;
+
+// Survives ESP.restart() (not a power cycle): what to do after a planned restart.
+RTC_NOINIT_ATTR uint32_t bootFlags;
+constexpr uint32_t kBootMagic = 0xB0070000;
+constexpr uint32_t kBootQuiet = 1;         // restarted while the screen was off: stay dark
+constexpr uint32_t kBootOpenHomeKit = 2;   // restarted from the HomeKit screen: go back there
+
+void restartWith(uint32_t flags) {
+  bootFlags = kBootMagic | flags;
+  Serial.flush();
+  ESP.restart();
+}
 
 void setBacklight(uint8_t level) { ledcWrite(kBacklightChannel, level); }
 
@@ -91,6 +107,9 @@ void Platform::applyRotation() {
 
 void setup() {
   Serial.begin(115200);
+  Serial.printf("[boot] reset reason %d\n", (int)esp_reset_reason());  // 4 = crash, 6 = task watchdog, 9 = brownout
+  uint32_t flags = (bootFlags & 0xFFFF0000) == kBootMagic ? bootFlags & 0xFFFF : 0;
+  bootFlags = 0;
   Settings::load();
   for (int pin : kRgbLedPins) {  // on-board RGB LED is active-low; keep it dark
     pinMode(pin, OUTPUT);
@@ -102,14 +121,14 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
   ledcSetup(kBacklightChannel, 5000, 8);
   ledcAttachPin(TFT_BL, kBacklightChannel);
-  setBacklight(Settings::get().brightness);
+  setBacklight(flags & kBootQuiet ? 0 : Settings::get().brightness);
 
   touchSpi.begin(25, 39, 32, 33);
   touch.begin(touchSpi);
   touch.setRotation(1);
 
   lv_init();
-  lv_disp_draw_buf_init(&drawBuf, buf1, buf2, kWidth * 24);
+  lv_disp_draw_buf_init(&drawBuf, buf1, nullptr, kWidth * 24);
   static lv_disp_drv_t dispDrv;
   lv_disp_drv_init(&dispDrv);
   dispDrv.hor_res = kWidth;
@@ -127,6 +146,14 @@ void setup() {
 
   BedLink::begin();  // before the UI: the UI reads bed state while building
   Ui::build();
+  Serial.printf("[mem] free after start: %u\n", (unsigned)ESP.getFreeHeap());
+  HomeKit::begin();
+  if (flags & kBootOpenHomeKit) Ui::openHomeKit();
+  if (flags & kBootQuiet) {
+    power = Power::Off;
+    offSince = millis();
+    BedLink::setActive(false);
+  }
 }
 
 void loop() {
@@ -142,7 +169,20 @@ void loop() {
   if (offMs && power != Power::Off && idle > offMs) {
     setBacklight(0);
     power = Power::Off;
+    offSince = millis();
     BedLink::setActive(false);
+  }
+
+  HomeKit::loop();
+  switch (HomeKit::pendingRestart()) {
+    case HomeKit::Restart::Now:  // a HomeKit setting changed; the screen says "Restarting"
+      if (!restartAt) restartAt = millis() + 1500;
+      else if ((int32_t)(millis() - restartAt) >= 0) restartWith(kBootOpenHomeKit);
+      break;
+    case HomeKit::Restart::WhenIdle:  // names or bed features changed: apply unnoticed
+      if (power == Power::Off && millis() - offSince > 120000) restartWith(kBootQuiet);
+      break;
+    case HomeKit::Restart::None: break;
   }
   delay(5);
 }

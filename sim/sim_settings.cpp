@@ -8,6 +8,9 @@
 namespace {
 // Fixed example values (not config_local.h) so screenshots are the same on every machine.
 RemoteSettings settings = {true, false, 255, 90, "12:34:56:78:9a:bc", 0, {"Alex", "Sam"}};
+struct Defaults {
+  Defaults() { settings.api = true; }
+} defaults;
 }
 
 namespace Settings {
